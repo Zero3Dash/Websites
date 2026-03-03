@@ -33,7 +33,7 @@
 <div class="container">
     <h1>📄 configlab · template studio ({{variables}})</h1>
     <p class="info-note">
-        ✅ <strong>Server‑saved templates!</strong> Use <code>{{double curly braces}}</code> for variables.
+        ✅ <strong>Server‑saved templates – now sorted A→Z!</strong> Use <code>{{double curly braces}}</code> for variables.
         Create, load, and share templates – they persist for everyone.
     </p>
 
@@ -233,11 +233,13 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
         }
 
         function populateTemplateSelect(list) {
+            // ✨ NEW: Sort alphabetically by template name
+            const sortedList = [...list].sort((a, b) => a.name.localeCompare(b.name));
             const select = document.getElementById('template-list');
             select.innerHTML = '<option value="">-- Select a template --</option>';
-            list.forEach(t => {
+            sortedList.forEach(t => {
                 const option = document.createElement('option');
-                option.value = t.template_id;   // use template_id as value
+                option.value = t.template_id;
                 option.textContent = t.name + ' (id: ' + t.template_id.substr(0,6) + '…)';
                 select.appendChild(option);
             });
