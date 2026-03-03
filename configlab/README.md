@@ -1080,7 +1080,9 @@ pm2 monit                # monitor CPU/memory
 pm2 restart configlab-app # restart after code updates
 ```
 
-## 🔗 Step 8: Install and Configure Nginx
+## 🔗 Step 8: Install and Configure Nginx for LetsEncrypt
+
+For Self-Signed Certificate, go to step 10. Ignore steps 8 & 9.
 
 ### 8.1 Install Nginx
 
@@ -1220,13 +1222,19 @@ trusted authority – this is normal for self‑signed certs.
 
 ---
 
-## 🔧 Step 10 (unchanged): Install and Configure Nginx
+## 🔧 Step 10: Install and Configure Nginx for Self-Signed Certificates
 
-Follow
- the same Nginx configuration as before, but in the configuration file
-we will later point to the self‑signed certificate paths.
+For LetsEncrpyt Certificated, go to step 8. Ignore steps 10 & 11.
 
-Create the Nginx site configuration:
+### 10.1 Install Nginx
+
+```
+sudo apt install -y nginx
+```
+
+### 10.2 Create Nginx Configuration for configlab
+
+Create a new site configuration file:
 
 ```
 sudo nano /etc/nginx/sites-available/configlab
