@@ -517,7 +517,7 @@ app.delete('/api/templates/:template_id', async (req, res) => {
 
 // ============= FRONTEND =============
 // For any non-API routes, serve the main HTML file
-app.get('*', (req, res) => {
+app.use((req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
