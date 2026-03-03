@@ -26,28 +26,26 @@
     Syntax – Variables use {{...}} (you can put spaces inside, e.g. {{IP Address}}).
 
 📜 Background
+The original 4peg.com was a simple tool for sharing templated text, popular among network engineers and script writers.
+This replica aims to preserve that idea while adding modern conveniences like persistent storage and easy sharing.
+It’s a static HTML file – you can host it anywhere or just run it locally.
 
-The original 4peg.com was a simple tool for sharing templated text, popular among network engineers and script writers. This replica aims to preserve that idea while adding modern conveniences like persistent storage and easy sharing. It’s a static HTML file – you can host it anywhere or just run it locally.
 🛠️ Files
-    index.html – The complete application (all CSS and JavaScript are embedded).
+index.html – The complete application (all CSS and JavaScript are embedded).
 
 📄 License
 Feel free to use, modify, and share this code. No attribution required.
 
 # Complete Deployment Guide: configlab with PostgreSQL on Ubuntu 24.04
 
-This guide provides **step‑by‑step instructions** to deploy the **configlab** web application (a template creation and sharing tool inspired by [4peg.com](https://4peg.com))
-
- on Ubuntu 24.04 with a PostgreSQL database. The application will be
-production‑ready, using PM2 for process management and Nginx as a
-reverse proxy with SSL from Let’s Encrypt.
+This guide provides **step‑by‑step instructions** to deploy the **configlab** web application (a template creation and sharing tool inspired by [4peg.com](https://4peg.com)) on Ubuntu 24.04 with a PostgreSQL database. The application is production‑ready, using PM2 for process management and Nginx as a reverse proxy with SSL using either from Let’s Encrypt or Self-Signed Certificates.
 
 All commands are written to be copy‑pasted. **Always replace** placeholders like `yourdomain.com`, `YourStrongPasswordHere2026`, and `youruser` with your actual values.
 
 ## 📋 Prerequisites
 
 * A server running **Ubuntu 24.04** (min. 1 GB RAM, 10 GB disk)
-* A domain name (e.g., `configlab.yourdomain.com`) pointing to the server’s public IP
+* A domain name (e.g., `configlab.yourdomain.com`) pointing to the server’s public/internal private IP address.
 * SSH access with **sudo** privileges
 * Basic familiarity with the terminal
 
