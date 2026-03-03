@@ -58,11 +58,11 @@ All commands are written to be copy‑pasted. **Always replace** placeholders li
 │   Browser/User  │ ───► │ Nginx (443)  │ ───► │ Node.js (3000)  │
 └─────────────────┘      │ Reverse Proxy│      │ Express Server  │
                          └──────────────┘      └────────┬────────┘
-                                                         │
-                                                  ┌──────▼──────┐
-                                                  │ PostgreSQL  │
-                                                  │  (Database) │
-                                                  └─────────────┘
+                                                        │
+                                                 ┌──────▼──────┐
+                                                 │ PostgreSQL  │
+                                                 │  (Database) │
+                                                 └─────────────┘
 ```
 
 ## 🔧 Step 1: System Preparation
