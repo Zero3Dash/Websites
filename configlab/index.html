@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>configlab · server‑saved templates</title>
+    <title>configlab · template studio ({{variables}})</title>
     <style>
-        /* (Same styles as before – copy from the previous version) */
+        /* (Same styles as before – compact version) */
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1.5rem; background: #f8fafc; color: #0f172a; line-height: 1.5; }
         .container { background: white; border-radius: 16px; padding: 2rem; box-shadow: 0 8px 20px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
         h1 { font-size: 2rem; font-weight: 600; margin-top: 0; margin-bottom: 0.5rem; color: #0a0f1c; }
@@ -31,9 +31,9 @@
 </head>
 <body>
 <div class="container">
-    <h1>📄 configlab · template studio</h1>
+    <h1>📄 configlab · template studio ({{variables}})</h1>
     <p class="info-note">
-        ✅ <strong>Templates are now stored on the server!</strong> Use <code>{{double curly braces}}</code> for variables.
+        ✅ <strong>Server‑saved templates!</strong> Use <code>{{double curly braces}}</code> for variables.
         Create, load, and share templates – they persist for everyone.
     </p>
 
@@ -76,7 +76,7 @@
     <hr />
 
     <h2>🔗 Sharing</h2>
-    <p><em>Fill out the form and share a link that pre-fills values and loads the same template:</em>
+    <p><em>Fill out the form and share a link that pre‑fills values and loads the same template:</em>
         <a href="#" id="share-link">📋 Copy shareable link</a>
     </p>
 
@@ -95,7 +95,7 @@
     (function() {
         // --------------------------------------------------------------
         // Configuration – change if your backend runs elsewhere
-        const API_BASE = 'http://localhost:3000/api';  // Update when deployed
+        const API_BASE = '/api';  // Relative path works behind Nginx proxy
 
         // Default template (router config)
         const DEFAULT_TEMPLATE = `interface Fa0/0
@@ -108,7 +108,7 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
         let currentTemplateText = DEFAULT_TEMPLATE;
 
         // In-memory list of templates (for dropdown)
-        let templatesList = [];  // each item: { id, name }
+        let templatesList = [];  // each item: { id, template_id, name }
 
         // --------------------------------------------------------------
         // Helper: extract variable names from template using {{...}}
@@ -237,8 +237,8 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
             select.innerHTML = '<option value="">-- Select a template --</option>';
             list.forEach(t => {
                 const option = document.createElement('option');
-                option.value = t.id;
-                option.textContent = t.name + ' (id: ' + t.id.substr(0,6) + '…)';
+                option.value = t.template_id;   // use template_id as value
+                option.textContent = t.name + ' (id: ' + t.template_id.substr(0,6) + '…)';
                 select.appendChild(option);
             });
         }
@@ -248,7 +248,7 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
                 const res = await fetch(`${API_BASE}/templates/${id}`);
                 if (!res.ok) throw new Error('Template not found');
                 const tpl = await res.json();
-                setCurrentTemplate(tpl.template, tpl.id);
+                setCurrentTemplate(tpl.template_text, tpl.template_id);
                 // Update URL
                 const url = new URL(window.location);
                 url.searchParams.set('template', id);
@@ -263,13 +263,13 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
                 const res = await fetch(`${API_BASE}/templates`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, template: templateText })
+                    body: JSON.stringify({ name, template_text: templateText })
                 });
                 if (!res.ok) throw new Error('Save failed');
                 const newTpl = await res.json();
-                templatesList.push({ id: newTpl.id, name: newTpl.name });
+                templatesList.push({ template_id: newTpl.template_id, name: newTpl.name });
                 populateTemplateSelect(templatesList);
-                return newTpl.id;
+                return newTpl.template_id;
             } catch (err) {
                 alert('Error saving template: ' + err.message);
                 return null;
@@ -283,7 +283,7 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
                 });
                 if (!res.ok) throw new Error('Delete failed');
                 // Remove from local list
-                templatesList = templatesList.filter(t => t.id !== id);
+                templatesList = templatesList.filter(t => t.template_id !== id);
                 populateTemplateSelect(templatesList);
                 if (currentTemplateId === id) {
                     // revert to default
@@ -359,7 +359,7 @@ ip route 0.0.0.0 0.0.0.0 {{Default Gateway}}`;
             }
         });
 
-        document.getElementById('reset-default-btn').click(() => {
+        document.getElementById('reset-default-btn').addEventListener('click', () => {
             setCurrentTemplate(DEFAULT_TEMPLATE, 'default');
             const url = new URL(window.location);
             url.searchParams.delete('template');
