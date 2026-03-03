@@ -65,7 +65,7 @@ All commands are written to be copy‑pasted. **Always replace** placeholders li
                                                   └─────────────┘
 ```
 
-🔧 Step 1: System Preparation
+## 🔧 Step 1: System Preparation
 
 **Connect to your server** via SSH:
 
@@ -89,3 +89,136 @@ sudo ufw allow 443/tcp
 # Enable the firewall (confirm when prompted)
 sudo ufw enable
 ```
+
+## 🐘 Step 2: Install and Configure PostgreSQL 17
+
+We’ll install PostgreSQL from the official PostgreSQL repository.
+
+### 2.1 Add PostgreSQL Official Repository
+
+```
+# Import the repository signing key
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+# Add the repository for Ubuntu 24.04 (Noble)
+sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+
+# Update package list
+sudo apt update
+```
+
+### 2.2 Install PostgreSQL 17
+
+```
+sudo apt install -y postgresql-17 postgresql-client-17
+```
+
+### 2.3 Verify Installation and Enable Autostart
+
+```
+# Check service status
+sudo systemctl status postgresql
+
+# Enable to start on boot (usually already enabled)
+sudo systemctl enable postgresql
+```
+
+### 2.4 Create Database and User
+
+Switch to the `postgres` system user:
+
+```
+sudo -i -u postgres
+```
+
+Now launch the PostgreSQL interactive terminal:
+
+```
+psql
+```
+
+Execute the following SQL commands  **inside the psql prompt** :
+
+```
+-- Create the application database
+CREATE DATABASE configlab_db;
+
+-- Create the application user with a strong password
+CREATE USER configlab_user WITH PASSWORD 'YourStrongPasswordHere2026';
+
+-- Grant all privileges on the database
+GRANT ALL PRIVILEGES ON DATABASE configlab_db TO configlab_user;
+
+-- Connect to the new database
+\c configlab_db
+
+-- Grant schema privileges (so the user can create tables)
+GRANT ALL ON SCHEMA public TO configlab_user;
+
+-- Exit psql
+\q
+```
+
+Now exit the `postgres` user session:
+
+```
+exit
+```
+
+### 2.5 Configure PostgreSQL for Production (Optional but Recommended)
+
+Edit the main configuration file:
+
+```
+sudo nano /etc/postgresql/17/main/postgresql.conf
+```
+
+Look for and adjust the following settings (uncomment and change values as needed):
+
+```
+# Connection settings
+listen_addresses = 'localhost'          # only accept local connections
+port = 5432
+
+# Memory settings (adjust based on your server’s RAM)
+shared_buffers = 256MB                  # 25% of RAM if dedicated DB server
+work_mem = 8MB
+maintenance_work_mem = 64MB
+effective_cache_size = 768MB
+```
+
+Save and close the file (`Ctrl+O`, `Enter`, `Ctrl+X`).
+
+### 2.6 Configure Client Authentication
+
+Edit the `pg_hba.conf` file:
+
+```
+sudo nano /etc/postgresql/17/main/pg_hba.conf
+```
+
+Ensure these lines are present (they usually are by default). They restrict connections to local users only.
+
+```
+# local connections
+local   all             all                                     peer
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             ::1/128                 scram-sha-256
+```
+
+Save and exit.
+
+### 2.7 Restart PostgreSQL
+
+```
+sudo systemctl restart postgresql
+```
+
+### 2.8 Test the Database Connection
+
+```
+psql -h localhost -U configlab_user -d configlab_db -W
+```
+
+Enter the password you set earlier. If successful, you’ll see the `configlab_db=>` prompt. Type `\q` to quit.
