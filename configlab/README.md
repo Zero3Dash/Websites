@@ -535,7 +535,7 @@ mkdir public
 nano public/index.html
 ```
 
-Now paste the **frontend HTML** from our previous server‑saved version. It’s the same as the one we used for the server‑based version, but we must ensure the `API_BASE` points to `/api` (relative path). Here’s the complete frontend code (you can copy it as is):
+Now paste the **frontend HTML.** Here’s the complete frontend code (you can copy it as is):
 
 ```
 <!DOCTYPE html>
@@ -1078,9 +1078,9 @@ pm2 monit                # monitor CPU/memory
 pm2 restart configlab-app # restart after code updates
 ```
 
-## 🔗 Step 8: Install and Configure Nginx for LetsEncrypt
+## 🔗 Step 8: Install and Configure Nginx for Let's Encrypt
 
-For Self-Signed Certificate, go to step 10. Ignore steps 8 & 9.
+For Self-Signed Certificates, go to step 10. Ignore steps 8 & 9.
 
 ### 8.1 Install Nginx
 
@@ -1208,21 +1208,18 @@ sudo certbot renew --dry-run
 
 If the dry‑run succeeds, your certificates will be renewed automatically.
 
+---
+
 # 🔒 Set Up Self‑Signed SSL Certificate (instead of Let's Encrypt)
 
-If
- you prefer to use a self‑signed certificate (for testing, internal
-networks, or when you don’t have a domain name), follow this modified
-section.
-**Note:** Browsers
-will show a security warning because the certificate is not issued by a
-trusted authority – this is normal for self‑signed certs.
+If you prefer to use a self‑signed certificate (for testing, internal networks, or when you don’t have a domain name), follow this modified section.
+**Note:** Browsers will show a security warning because the certificate is not issued by a trusted authority – this is normal for self‑signed certs.
 
 ---
 
 ## 🔧 Step 10: Install and Configure Nginx for Self-Signed Certificates
 
-For LetsEncrpyt Certificated, go to step 8. Ignore steps 10 & 11.
+For Lets Encrpyt Certificates, go to step 8. Ignore steps 10 & 11.
 
 ### 10.1 Install Nginx
 
@@ -1361,10 +1358,7 @@ sudo systemctl reload nginx
 
 ## 🧪 Step 12: Verify SSL
 
-Now visit `https://configlab.yourdomain.com`
- (or your server IP) in a browser. You will see a warning like “Your
-connection is not private” – this is expected. Proceed (usually by
-clicking “Advanced” and then “Proceed to site”).
+Now visit `https://configlab.yourdomain.com` (or your server IP) in a browser. You will see a warning like “Your connection is not private” – this is expected. Proceed (usually by clicking “Advanced” and then “Proceed to site”).
 
 The site should load with HTTPS, and the connection will be encrypted even though the certificate is not trusted by browsers.
 
@@ -1372,9 +1366,7 @@ The site should load with HTTPS, and the connection will be encrypted even thoug
 
 ## 🔁 What About Certificate Renewal?
 
-Self‑signed certificates expire after the period set with `-days`
- (here 365 days). When they expire, you will need to generate a new one
-manually. You can set up a cron job to renew it yearly if needed.
+Self‑signed certificates expire after the period set with `-days` (here 365 days). When they expire, you will need to generate a new one manually. You can set up a cron job to renew it yearly if needed.
 
 ---
 
