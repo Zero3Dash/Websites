@@ -20,21 +20,19 @@
         Use the embed codes at the bottom to place the tool on another page.
 
 🧠 Technical Notes
-    No server – Everything runs in your browser. Templates are saved in localStorage and never leave your machine.
+    Backend server – Everything runs in your browser. Templates are saved in a SQL database..
     Share links – They contain the template ID and form values as URL query parameters. Opening such a link restores the exact state.
     Default template – A router configuration snippet is provided as an example, matching the original 4peg.com.
-    Syntax – Variables use {{...}} (you can put spaces inside, e.g. {{IP Address}}).
+    Syntax – Variables use {{...}} (you can put spaces inside, e.g. {{ip_address}}).
 
 📜 Background
 The original 4peg.com was a simple tool for sharing templated text, popular among network engineers and script writers.
 This replica aims to preserve that idea while adding modern conveniences like persistent storage and easy sharing.
-It’s a static HTML file – you can host it anywhere or just run it locally.
-
-🛠️ Files
-index.html – The complete application (all CSS and JavaScript are embedded).
+You can host it anywhere or just run it locally.
 
 📄 License
-Feel free to use, modify, and share this code. No attribution required.
+
+Feel free to use, modify, and share this code. Please attribution.
 
 # Complete Deployment Guide: configlab with PostgreSQL on Ubuntu 24.04
 
