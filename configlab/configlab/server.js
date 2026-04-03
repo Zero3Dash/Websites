@@ -1,103 +1,129 @@
-const express = require('express');
-const cors = require('cors');
-const db = require('./db');
+/**
+ * server.js  –  configlab v2
+ * Express + Passport (local/LDAP/SAML) + WebSocket SSH streaming
+ */
 require('dotenv').config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const express        = require('express');
+const http           = require('http');
+const session        = require('express-session');
+const pgSession      = require('connect-pg-simple')(session);
+const cors           = require('cors');
+const WebSocket      = require('ws');
+const url            = require('url');
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public')); // Serve static frontend files from the 'public' folder
+const db             = require('./db');
+const { passport, initAuth } = require('./auth');
+const authRoutes     = require('./routes/auth');
+const userRoutes     = require('./routes/users');
+const deviceRoutes   = require('./routes/devices');
+const sshRoutes      = require('./routes/ssh');
+const { requireAuth } = require('./middleware/auth');
 
-// ============= API ROUTES =============
+const app    = express();
+const server = http.createServer(app);
+const PORT   = process.env.PORT || 3000;
 
-// GET /api/templates - List all templates (id, template_id, name, created_at)
-app.get('/api/templates', async (req, res) => {
-    try {
-        const result = await db.query(
-            'SELECT id, template_id, name, created_at FROM templates ORDER BY created_at DESC'
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error fetching templates:', err);
-        res.status(500).json({ error: 'Database error' });
+// ── Session store in PostgreSQL ────────────────────────────────
+const sessionMiddleware = session({
+    store: new pgSession({
+        pool: db.pool,
+        tableName: 'user_sessions',
+        createTableIfMissing: true
+    }),
+    secret:            process.env.SESSION_SECRET || 'change-this-secret-in-production',
+    resave:            false,
+    saveUninitialized: false,
+    cookie: {
+        secure:   process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        maxAge:   8 * 60 * 60 * 1000   // 8 hours
     }
 });
 
-// GET /api/templates/:template_id - Get a specific template
-app.get('/api/templates/:template_id', async (req, res) => {
-    try {
-        const { template_id } = req.params;
-        const result = await db.query(
-            'SELECT * FROM templates WHERE template_id = $1',
-            [template_id]
-        );
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Template not found' });
-        }
-        
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Error fetching template:', err);
-        res.status(500).json({ error: 'Database error' });
+// ── Middleware ─────────────────────────────────────────────────
+app.use(cors({ origin: false }));          // same-origin only
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(sessionMiddleware);
+app.use(passport.initialize());
+app.use(passport.session());
+
+// ── Static files (public folder) ──────────────────────────────
+// Protected: redirect to login if not authenticated
+app.use((req, res, next) => {
+    const publicPaths = ['/login.html', '/auth/', '/favicon.ico'];
+    const isPublicFile = publicPaths.some(p => req.path.startsWith(p));
+    // Let API routes and public pages through
+    if (req.path.startsWith('/api') || req.path.startsWith('/auth') || isPublicFile) {
+        return next();
     }
+    // Serve static files — if authenticated
+    if (req.isAuthenticated()) return next();
+    // Not authenticated — serve static only for login page
+    if (req.path === '/' || req.path === '/index.html') {
+        return res.redirect('/login.html');
+    }
+    if (req.path.endsWith('.html')) {
+        return res.redirect('/login.html');
+    }
+    next();
 });
 
-// POST /api/templates - Create a new template
-app.post('/api/templates', async (req, res) => {
-    try {
-        const { name, template_text } = req.body;
-        
-        if (!name || !template_text) {
-            return res.status(400).json({ error: 'Name and template_text are required' });
-        }
-        
-        // Generate a unique template ID (simple but sufficient)
-        const template_id = 'tpl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-        
-        const result = await db.query(
-            'INSERT INTO templates (template_id, name, template_text) VALUES ($1, $2, $3) RETURNING id, template_id, name, created_at',
-            [template_id, name, template_text]
-        );
-        
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        console.error('Error creating template:', err);
-        res.status(500).json({ error: 'Database error' });
-    }
-});
+app.use(express.static('public'));
 
-// DELETE /api/templates/:template_id - Delete a template
-app.delete('/api/templates/:template_id', async (req, res) => {
-    try {
-        const { template_id } = req.params;
-        const result = await db.query(
-            'DELETE FROM templates WHERE template_id = $1 RETURNING id',
-            [template_id]
-        );
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Template not found' });
-        }
-        
-        res.status(204).send(); // No content
-    } catch (err) {
-        console.error('Error deleting template:', err);
-        res.status(500).json({ error: 'Database error' });
-    }
-});
+// ── API Routes ─────────────────────────────────────────────────
+app.use('/auth',               authRoutes);
+app.use('/api/users',          userRoutes);
+app.use('/api/devices',        deviceRoutes);
+app.use('/api/ssh',            requireAuth, sshRoutes);
 
-// ============= FRONTEND =============
-// For any non-API routes, serve the main HTML file
+// Templates routes (preserved from v1)
+const templateRoutes = require('./routes/templates');
+app.use('/api/templates',      requireAuth, templateRoutes);
+
+// ── SPA fallback ───────────────────────────────────────────────
 app.use((req, res) => {
-    res.sendFile(__dirname + '/public/index.html');
+    if (req.isAuthenticated()) {
+        res.sendFile(__dirname + '/public/index.html');
+    } else {
+        res.redirect('/login.html');
+    }
 });
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV}`);
+// ── WebSocket SSH streaming ────────────────────────────────────
+const wss = new WebSocket.Server({ noServer: true });
+sshRoutes.attachSshWebSocket(wss);
+
+// Upgrade handler — share express session with WS
+server.on('upgrade', (req, socket, head) => {
+    if (!req.url.startsWith('/ws/ssh/')) {
+        socket.destroy();
+        return;
+    }
+    // Parse session so we can auth the WS connection
+    sessionMiddleware(req, {}, () => {
+        passport.initialize()(req, {}, () => {
+            passport.session()(req, {}, () => {
+                wss.handleUpgrade(req, socket, head, (ws) => {
+                    wss.emit('connection', ws, req);
+                });
+            });
+        });
+    });
+});
+
+// ── Start ──────────────────────────────────────────────────────
+async function start() {
+    await initAuth();   // load LDAP/SAML strategies from DB config
+    server.listen(PORT, () => {
+        console.log(`✅ configlab running on http://localhost:${PORT}`);
+        console.log(`📝 Environment: ${process.env.NODE_ENV}`);
+        console.log(`🔌 WebSocket SSH endpoint: ws://localhost:${PORT}/ws/ssh/:logId`);
+    });
+}
+
+start().catch(err => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
 });
