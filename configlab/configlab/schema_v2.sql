@@ -25,7 +25,7 @@ INSERT INTO users (username, email, password_hash, role)
 VALUES (
     'admin',
     'admin@localhost',
-    '$2b$12$KIXx5Z3S5J5Q5z5z5z5z5uXsGxFwXzXzXzXzXzXzXzXzXzXzXzXzX',
+    '$2b$12$MhJJV3YtPm6G8Td6My8p7.H.8mLVn3wO0FhwQ/Ip8F9lWsFbzBfsG',
     'admin'
 ) ON CONFLICT DO NOTHING;
 

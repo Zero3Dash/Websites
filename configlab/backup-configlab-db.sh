@@ -1,16 +1,18 @@
 #!/bin/bash
+# configlab — daily PostgreSQL backup
+# Installed to /usr/local/bin/backup-configlab-db.sh
+# Cron: 0 2 * * * /usr/local/bin/backup-configlab-db.sh
+
 BACKUP_DIR="/var/backups/postgresql"
 DATE=$(date +%Y%m%d_%H%M%S)
 DB_NAME="configlab_db"
-DB_USER="configlab_user"
 
-# Perform the dump
-sudo -u postgres pg_dump $DB_NAME > $BACKUP_DIR/${DB_NAME}_$DATE.sql
+mkdir -p "$BACKUP_DIR"
 
-# Compress
-gzip $BACKUP_DIR/${DB_NAME}_$DATE.sql
+sudo -u postgres pg_dump "$DB_NAME" \
+    | gzip > "${BACKUP_DIR}/${DB_NAME}_${DATE}.sql.gz"
 
-# Keep only the last 7 days of backups
-find $BACKUP_DIR -name "${DB_NAME}_*.sql.gz" -mtime +7 -delete
+# Prune backups older than 7 days
+find "$BACKUP_DIR" -name "${DB_NAME}_*.sql.gz" -mtime +7 -delete
 
-echo "Backup completed: ${DB_NAME}_$DATE.sql.gz"
+echo "[$(date -Iseconds)] Backup completed: ${DB_NAME}_${DATE}.sql.gz"
