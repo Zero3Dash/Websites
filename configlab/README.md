@@ -1,6 +1,8 @@
-# configlab v2 — Deployment & Operations Guide
+# configlab — Deployment & Operations Guide
 
-**configlab** is a self-hosted template studio inspired by 4peg.com. v2 adds user authentication (local / LDAP / SAML), a device & credential vault, and live SSH execution streamed to the browser.
+**configlab** is a self-hosted template studio inspired by 4peg.com. Write any text with `{{variable}}` placeholders, save templates to a shared PostgreSQL database, fill them in via an auto-generated form, and execute the result over SSH against a managed device inventory — all from the browser.
+
+**Features:** local accounts · LDAP/AD · SAML 2.0 SSO · AES-256-GCM credential vault · live SSH streaming · device groups · shareable template links · iframe embed
 
 ---
 
@@ -10,10 +12,10 @@
 Browser
   │
   ▼
-Nginx (443 TLS)          ← reverse proxy, handles WS upgrade
+Nginx (443 TLS)          ← reverse proxy, handles WebSocket upgrade
   │
   ▼
-Node.js / Express (3000) ← server.js: API + static files + WS SSH
+Node.js / Express (3000) ← API + static files
   │           │
   │           └── WebSocket /ws/ssh/:logId  ← real-time SSH output
   ▼
@@ -35,8 +37,8 @@ PostgreSQL               ← templates, users, devices, credentials, logs
 |--------|------|------|-------------|
 | POST | `/auth/login/local` | public | Local login |
 | POST | `/auth/login/ldap` | public | LDAP login |
-| GET | `/auth/saml/login` | public | SAML redirect |
-| POST | `/auth/saml/callback` | public | SAML ACS |
+| GET | `/auth/saml/login` | public | SAML redirect to IdP |
+| POST | `/auth/saml/callback` | public | SAML ACS callback |
 | GET | `/auth/me` | user | Current user info |
 | POST | `/auth/logout` | user | Destroy session |
 | GET | `/api/templates` | user | List templates |
@@ -49,10 +51,11 @@ PostgreSQL               ← templates, users, devices, credentials, logs
 | GET | `/api/devices/groups` | user | List groups |
 | POST | `/api/devices/groups` | user | Add group |
 | DELETE | `/api/devices/groups/:id` | **admin** | Delete group |
-| GET | `/api/devices/credentials` | user | List credentials (no secrets) |
+| GET | `/api/devices/credentials` | user | List credentials (no secrets returned) |
 | POST | `/api/devices/credentials` | user | Add credential |
 | DELETE | `/api/devices/credentials/:id` | **admin** | Delete credential |
 | POST | `/api/ssh/execute` | user | Start SSH job → `{ logId }` |
+| GET | `/api/devices/:id/logs` | user | Execution history for a device |
 | GET | `/api/users` | **admin** | List users |
 | POST | `/api/users` | **admin** | Create local user |
 | PATCH | `/api/users/:id` | **admin** | Edit user |
@@ -62,32 +65,91 @@ PostgreSQL               ← templates, users, devices, credentials, logs
 
 ---
 
-## Quick install (Ubuntu 24.04)
+## Getting the code
 
-For a fresh server, the included `setup.sh` handles everything end-to-end:
+### Clone from GitHub
 
 ```bash
-# Clone or copy the configlab directory to your server, then:
+git clone https://github.com/YOUR_USERNAME/configlab.git
+cd configlab
+```
+
+If deploying directly onto a server, clone there:
+
+```bash
+ssh user@your-server-ip
+git clone https://github.com/YOUR_USERNAME/configlab.git /var/www/configlab
+cd /var/www/configlab
+```
+
+### Keep up to date
+
+```bash
+cd /var/www/configlab
+git pull
+npm install --omit=dev
+pm2 restart configlab-app
+```
+
+If a release includes database changes the release notes will say so. Apply them with:
+
+```bash
+psql -h localhost -U configlab_user -d configlab_db -f schema_v2.sql -W
+```
+
+All schema files use `CREATE TABLE IF NOT EXISTS` and `ON CONFLICT DO NOTHING` throughout, so re-running them against an existing database is safe — they are additive only and will not modify or drop existing data.
+
+---
+
+## Quick install (Ubuntu 24.04)
+
+Clone the repo then run the included bootstrap script. It handles everything end-to-end with no manual steps.
+
+```bash
+git clone https://github.com/YOUR_USERNAME/configlab.git
+cd configlab
 sudo bash setup.sh
 ```
 
-It will install Node 20, PostgreSQL 17, Nginx, PM2, create the database, generate secrets, configure a self-signed SSL cert, and start the application. At the end it prints the generated database password and the URL to access the app.
+`setup.sh` will:
+
+1. Install Node.js 20, PostgreSQL 17, Nginx, and PM2
+2. Create the database user and apply the schema
+3. Generate `SESSION_SECRET` and `VAULT_SECRET` and write them to `.env`
+4. Install npm dependencies
+5. Start the app under PM2 with auto-restart on boot
+6. Generate a self-signed SSL certificate and configure Nginx
+
+At the end it prints the URL, generated database password, and a reminder to change the default admin password immediately.
+
+> For a public-facing server with a real domain, switch to Let's Encrypt after setup — see **Nginx + SSL → Option A** in the manual install section below.
 
 ---
 
 ## Manual install
 
+Follow this path if you need more control, are deploying to an existing server, or want Let's Encrypt from the start.
+
 ### Prerequisites
 
-- Ubuntu 24.04 (or similar), min 1 GB RAM
-- A domain name pointing to your server (for Let's Encrypt) — or use IP/self-signed
+- Ubuntu 24.04 (or compatible Debian-based OS), minimum 1 GB RAM
+- A domain name pointing to the server's IP (required for Let's Encrypt; optional for self-signed)
 - SSH access with sudo
 
-### 1 — System packages
+### 1 — Get the code
+
+```bash
+git clone https://github.com/YOUR_USERNAME/configlab.git
+sudo mv configlab /var/www/configlab
+sudo chown -R $USER:$USER /var/www/configlab
+cd /var/www/configlab
+```
+
+### 2 — System packages
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl wget git ufw build-essential
+sudo apt install -y curl wget git ufw build-essential openssl
 
 # Firewall
 sudo ufw allow OpenSSH
@@ -96,15 +158,15 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-### 2 — Node.js 20
+### 3 — Node.js 20
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-node -v   # v20.x
+node -v   # should print v20.x
 ```
 
-### 3 — PostgreSQL 17
+### 4 — PostgreSQL 17
 
 ```bash
 sudo install -d /usr/share/postgresql-common/pgdg
@@ -117,7 +179,7 @@ sudo apt update && sudo apt install -y postgresql-17
 sudo systemctl enable --now postgresql
 ```
 
-#### Create database
+#### Create the database
 
 ```bash
 sudo -i -u postgres psql <<'SQL'
@@ -130,48 +192,46 @@ GRANT ALL ON SCHEMA public TO configlab_user;
 SQL
 ```
 
-#### Apply schemas
+#### Apply the schema
 
 ```bash
-# v1 base tables (templates)
+cd /var/www/configlab
+
+# Templates table
 psql -h localhost -U configlab_user -d configlab_db -f schema.sql -W
 
-# v2 tables (users, devices, credentials, groups, logs, auth_config)
+# Users, devices, credentials, groups, execution logs, auth config
 psql -h localhost -U configlab_user -d configlab_db -f schema_v2.sql -W
 ```
 
-### 4 — Application
+### 5 — Node packages
 
 ```bash
-sudo mkdir -p /var/www/configlab
-sudo chown $USER:$USER /var/www/configlab
-# copy files here, then:
 cd /var/www/configlab
 npm install --omit=dev
 ```
 
-### 5 — Environment variables
-
-Copy `.env.example` to `.env` and fill in all values:
+### 6 — Environment variables
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 nano .env
 ```
 
-Generate the two required secrets:
+Generate the two required secrets — run each command and paste the output into `.env`:
 
 ```bash
 # SESSION_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
-# VAULT_SECRET (MUST be exactly 64 hex chars)
+# VAULT_SECRET  (must be exactly 64 hex characters)
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-> ⚠️ **Back up `VAULT_SECRET` securely.** If it is lost, all stored credentials become permanently unrecoverable.
+> ⚠️ **Back up `VAULT_SECRET` to a password manager or secrets store immediately.** If it is lost, all stored SSH credentials become permanently unrecoverable — there is no reset path.
 
-Full `.env` reference:
+Complete `.env` reference:
 
 ```ini
 PORT=3000
@@ -189,7 +249,7 @@ VAULT_SECRET=<64-char hex>
 APP_URL=https://configlab.yourdomain.com
 ```
 
-### 6 — PM2
+### 7 — PM2
 
 ```bash
 sudo npm install -g pm2
@@ -199,21 +259,29 @@ sudo chown $USER:$USER /var/log/configlab
 
 pm2 start ecosystem.config.js
 pm2 save
-pm2 startup   # run the printed command as root
+
+# Register PM2 to start on boot — run the command it prints
+pm2 startup
 ```
 
-### 7 — Nginx + SSL
+### 8 — Nginx + SSL
 
-**Option A — Let's Encrypt (production, requires public domain):**
+**Option A — Let's Encrypt (recommended for public servers):**
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d configlab.yourdomain.com
 ```
 
-Then create `/etc/nginx/sites-available/configlab` using the `configlab-letsencrypt` file in this repo and reload nginx.
+Then copy the `configlab-letsencrypt` file from the repo as your site config:
 
-**Option B — Self-signed (internal / testing):**
+```bash
+sudo cp /var/www/configlab/configlab-letsencrypt /etc/nginx/sites-available/configlab
+# Replace configlab.yourdomain.com with your actual domain
+sudo nano /etc/nginx/sites-available/configlab
+```
+
+**Option B — Self-signed (internal networks / testing):**
 
 ```bash
 sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
@@ -221,44 +289,31 @@ sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -out    /etc/ssl/certs/configlab.crt \
     -subj   "/CN=configlab.yourdomain.com"
 sudo chmod 600 /etc/ssl/private/configlab.key
+
+sudo cp /var/www/configlab/configlab-selfsigned /etc/nginx/sites-available/configlab
+sudo nano /etc/nginx/sites-available/configlab   # replace the domain
 ```
 
-Then use `configlab-selfsigned` as your Nginx site config.
-
-Enable and reload:
+**Enable the site (both options):**
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/configlab /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
+sudo nginx -t
+sudo systemctl enable --now nginx
+sudo systemctl reload nginx
 ```
 
 ---
 
-## Upgrading from v1
+## First login
 
-If you already have a running v1 (templates-only) instance:
+Navigate to `https://configlab.yourdomain.com` and log in with:
 
-```bash
-# 1. Install new npm packages
-npm install bcrypt passport passport-local passport-ldapauth \
-    @node-saml/passport-saml express-session connect-pg-simple \
-    node-ssh ws
+- **Username:** `admin`
+- **Password:** `ChangeMe2026!`
 
-# 2. Apply only the v2 schema (does not modify the templates table)
-psql -h localhost -U configlab_user -d configlab_db -f schema_v2.sql -W
-
-# 3. Add new env vars to .env
-#    SESSION_SECRET and VAULT_SECRET (see above)
-
-# 4. Deploy new server.js + all route/auth/middleware/crypto files
-
-# 5. Restart
-pm2 restart configlab-app
-```
-
-**Default admin credentials after migration:** `admin` / `ChangeMe2026!`  
-Change these immediately at Admin → Users.
+Go to **Admin → Users → Edit** and set a strong password before doing anything else.
 
 ---
 
@@ -266,51 +321,52 @@ Change these immediately at Admin → Users.
 
 ### Local accounts
 
-Managed entirely through **Admin → Users**. Passwords are bcrypt-hashed (cost 12). Only `local` provider accounts can have their password changed through the UI. LDAP and SAML users are provisioned automatically on first login.
+Managed through **Admin → Users**. Passwords are bcrypt-hashed at cost 12. Only local accounts can have passwords changed through the UI — LDAP and SAML users are provisioned automatically on first login and managed by the upstream directory.
 
 ### LDAP / Active Directory
 
 1. Log in as admin → **Admin → Auth Providers → LDAP/AD**
-2. Enter your LDAP settings:
+2. Enter your directory settings:
 
 | Field | Example |
 |-------|---------|
 | LDAP URL | `ldap://dc.corp.example.com:389` or `ldaps://dc.corp.example.com:636` |
 | Bind DN | `cn=svc-configlab,ou=ServiceAccounts,dc=corp,dc=example,dc=com` |
-| Bind Password | (service account password) |
+| Bind Password | service account password |
 | Search Base | `ou=Users,dc=corp,dc=example,dc=com` |
 | Search Filter | `(sAMAccountName={{username}})` |
 | Admin Group DN | `CN=configlab-admins,ou=Groups,dc=corp,dc=example,dc=com` |
+| Group Search Base | `ou=Groups,dc=corp,dc=example,dc=com` |
 
-3. Enable the toggle → **Save**
+3. Enable the toggle → **Save LDAP config**
 4. Restart: `pm2 restart configlab-app`
-5. The **LDAP/AD** tab now appears on the login page
+5. The **LDAP/AD** tab appears on the login page
 
-**For LDAPS with self-signed DC cert:** disable *Reject unauthorized TLS certificates*.
+**LDAPS with a self-signed DC certificate:** disable *Reject unauthorized TLS certificates* in the form.
 
-**Group-based admin:** users whose `memberOf` contains the Admin Group DN will receive the `admin` role on each login.
+**Group-based admin role:** any user whose Active Directory `memberOf` attribute includes the Admin Group DN will receive the `admin` role in configlab, synced on every login.
 
 ### SAML 2.0 (SSO)
 
-1. Register your Service Provider with your IdP:
-   - **Entity ID / Issuer:** `configlab` (or any string — must match what you enter)
-   - **ACS URL (Callback):** `https://configlab.yourdomain.com/auth/saml/callback`
+1. Register configlab as a Service Provider in your IdP:
+   - **Entity ID / Issuer:** `configlab` (or any string — must match what you enter in step 2)
+   - **ACS URL:** `https://configlab.yourdomain.com/auth/saml/callback`
    - **Name ID format:** Email address (recommended)
 
 2. Log in as admin → **Admin → Auth Providers → SAML 2.0**
 3. Fill in the IdP details and attribute mapping
-4. Paste the IdP signing certificate (PEM body, without the `-----BEGIN CERTIFICATE-----` wrapper)
-5. Enable the toggle → **Save** → `pm2 restart configlab-app`
+4. Paste the IdP signing certificate — PEM body only, without the `-----BEGIN CERTIFICATE-----` / `-----END CERTIFICATE-----` wrapper lines
+5. Enable the toggle → **Save SAML config** → `pm2 restart configlab-app`
 6. The **Sign in with SSO** button appears on the login page
 
-**Attribute mapping examples (Azure AD / Entra ID):**
+**Attribute mapping — Azure AD / Entra ID:**
 
-| Field | Value |
-|-------|-------|
+| Field | Claim URI |
+|-------|-----------|
 | Email | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` |
 | Username | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name` |
 | Role/Group | `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups` |
-| Admin group value | Object ID of the admin group |
+| Admin group value | Object ID of the admin group in Azure AD |
 
 ---
 
@@ -318,29 +374,30 @@ Managed entirely through **Admin → Users**. Passwords are bcrypt-hashed (cost 
 
 ### Credentials
 
-All passwords and private keys are encrypted at rest using **AES-256-GCM** with a key derived from `VAULT_SECRET`. The API never returns plaintext secrets after they are stored — only metadata (name, username, method, creation date).
+All passwords and private keys are encrypted at rest using **AES-256-GCM** keyed from `VAULT_SECRET`. The API never returns plaintext secrets after initial storage — only metadata (name, username, auth method, creation date) is readable.
 
-Supported auth methods:
-- **Password** — standard SSH password authentication
-- **SSH Private Key** — RSA / Ed25519 PEM private key
-- **SSH Private Key + Passphrase** — encrypted private key
+| Auth method | When to use |
+|-------------|-------------|
+| Password | Standard SSH password auth |
+| SSH Private Key | RSA or Ed25519 PEM key, no passphrase |
+| SSH Private Key + Passphrase | Encrypted private key |
 
 ### Devices
 
-Devices are assigned a type (Linux, Cisco IOS, Cisco NX-OS, JunOS, Windows) for display purposes. All SSH connections use port 22 by default; this can be overridden per device.
+Each device has a type (Linux, Cisco IOS, Cisco NX-OS, JunOS, Windows) used for display only — SSH behaviour is identical regardless. The default port is 22 and can be overridden per device.
 
-Devices can be grouped and colour-coded for organisation. The group is shown in the SSH device picker on the template page.
+Devices can be assigned to colour-coded groups. Groups appear as headings in the SSH device picker on the template page.
 
 ### SSH execution
 
 1. On the **Templates** page, select or create a template and fill in all variables
 2. Click **⚡ Generate Filled Template**
-3. In the right-hand SSH panel, select a target device
-4. Optionally select a different credential to override the device default
+3. In the right-hand **Execute on Device** panel, select a target device
+4. Optionally select a credential override (otherwise the device's default credential is used)
 5. Click **▶ Run on device**
-6. stdout streams in real-time (blue), stderr in amber, final exit status shown in green/red
+6. Output streams live: stdout in white, stderr in amber, exit status in green (0) or red (non-zero)
 
-Each execution creates a row in `execution_logs` with the full command, output, exit code, and timestamps. Logs can be retrieved per device:
+Each execution is logged to `execution_logs` with the full command text, combined output, exit code, start time, and end time. Retrieve logs per device:
 
 ```
 GET /api/devices/:id/logs
@@ -350,21 +407,22 @@ GET /api/devices/:id/logs
 
 ## Database backup
 
-A backup cron job is installed by `setup.sh`. To set it up manually:
+`setup.sh` configures a daily cron job automatically. To set it up manually:
 
 ```bash
 sudo mkdir -p /var/backups/postgresql
 sudo chown postgres:postgres /var/backups/postgresql
 
-sudo cp backup-configlab-db.sh /usr/local/bin/
+sudo cp /var/www/configlab/backup-configlab-db.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/backup-configlab-db.sh
 
-# Daily at 02:00
+# Add a daily job at 02:00 for the postgres user
 sudo crontab -u postgres -e
-# Add: 0 2 * * * /usr/local/bin/backup-configlab-db.sh
+# Add this line:
+# 0 2 * * * /usr/local/bin/backup-configlab-db.sh
 ```
 
-Restore from backup:
+Backups older than 7 days are pruned automatically. **Restore from a backup:**
 
 ```bash
 gunzip -c /var/backups/postgresql/configlab_db_YYYYMMDD_HHMMSS.sql.gz \
@@ -375,11 +433,13 @@ gunzip -c /var/backups/postgresql/configlab_db_YYYYMMDD_HHMMSS.sql.gz \
 
 ## Operations
 
-### Status check
+### Health check
 
 ```bash
-bash check-status.sh
+bash /var/www/configlab/check-status.sh
 ```
+
+Prints PM2 status, Nginx, PostgreSQL, live database row counts, disk usage, recent errors, and SSL certificate expiry in one shot.
 
 ### PM2 commands
 
@@ -387,7 +447,7 @@ bash check-status.sh
 pm2 status                    # process table
 pm2 logs configlab-app        # live log tail
 pm2 logs configlab-app --err  # errors only
-pm2 restart configlab-app     # restart after changes
+pm2 restart configlab-app     # restart after a git pull
 pm2 monit                     # live CPU / memory dashboard
 ```
 
@@ -406,28 +466,28 @@ pm2 monit                     # live CPU / memory dashboard
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| 502 Bad Gateway | Node app not running | `pm2 status` then `pm2 start ecosystem.config.js` |
-| Can't log in (local) | Wrong default password or broken hash | Re-run `schema_v2.sql` or reset via psql `UPDATE users SET password_hash=...` |
-| LDAP login fails | Wrong bind DN / filter / URL | Check `/var/log/configlab/err.log` — ldapauth logs the exact LDAP error |
-| SAML error | Cert mismatch or wrong ACS URL | Confirm callback URL in IdP matches `APP_URL/auth/saml/callback` |
-| SSH execution fails | No credential on device | Assign a default credential in Devices page |
-| SSH "Credential not found" | `VAULT_SECRET` changed | Restore old `VAULT_SECRET` from backup — all encrypted data is unreadable without it |
-| WebSocket error | Nginx missing upgrade headers | Confirm `proxy_set_header Upgrade` and `Connection 'upgrade'` are in nginx config |
-| `VAULT_SECRET must be 64-char` | Missing or wrong `.env` | Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| Templates 401 after upgrade | Session store table missing | The `connect-pg-simple` creates `user_sessions` automatically on first run |
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| 502 Bad Gateway | Node app not running | `pm2 status` → `pm2 start ecosystem.config.js` |
+| Login fails with correct password | Schema not applied or stale session | Re-run `schema_v2.sql`; clear browser cookies |
+| LDAP login fails | Wrong bind DN, filter, or URL | Check `err.log` — passport-ldapauth logs the exact LDAP error |
+| SAML redirect loop or error page | ACS URL mismatch or wrong cert | Confirm the callback URL in your IdP exactly matches `APP_URL/auth/saml/callback` |
+| SSH execution fails immediately | No credential assigned to device | Go to Devices, edit the device, assign a default credential |
+| SSH "Credential not found" | `VAULT_SECRET` was changed | Restore the original `VAULT_SECRET` — credentials encrypted with a different key cannot be decrypted |
+| WebSocket disconnects instantly | Nginx missing upgrade headers | Confirm `proxy_set_header Upgrade $http_upgrade` and `Connection 'upgrade'` in Nginx config |
+| `VAULT_SECRET must be 64-char` on startup | Missing or malformed `.env` | Run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` and paste result |
+| 401 on all API calls | Session store not initialised | Check `err.log` for DB connection errors; `user_sessions` table is created automatically on first start |
 
 ---
 
 ## Security notes
 
-- All routes except `/auth/*` and `/login.html` require authentication
-- Credential secrets (passwords, SSH keys) are AES-256-GCM encrypted; the API never returns them after storage
+- All routes except `/auth/*` and `/login.html` require a valid session
+- Credential secrets are AES-256-GCM encrypted; plaintext is never persisted or returned by the API
 - Session cookies are `httpOnly`, `secure` (production), and expire after 8 hours
-- Only `admin` role users can delete devices, credentials, groups, and users
-- PostgreSQL only listens on `localhost`; no remote DB access
-- Install `fail2ban` to protect against SSH brute-force on the host itself
+- Only `admin` role accounts can delete users, devices, credentials, and groups
+- PostgreSQL is bound to `localhost` only — no remote database access
+- Install `fail2ban` to protect the host SSH service against brute-force:
 
 ```bash
 sudo apt install -y fail2ban
@@ -440,33 +500,34 @@ sudo systemctl enable --now fail2ban
 
 ```
 /var/www/configlab/
-├── server.js               ← Express app entry point
-├── db.js                   ← PostgreSQL connection pool
+├── server.js                ← Express app entry point
+├── db.js                    ← PostgreSQL connection pool
 ├── package.json
-├── ecosystem.config.js     ← PM2 config
-├── .env                    ← secrets (chmod 600)
-├── schema.sql              ← v1: templates table
-├── schema_v2.sql           ← v2: users, devices, credentials, etc.
-├── setup.sh                ← one-shot install script
-├── check-status.sh         ← health check script
-├── backup-configlab-db.sh  ← DB backup script
+├── ecosystem.config.js      ← PM2 process config
+├── .env                     ← runtime secrets (chmod 600, not in git)
+├── .env.example             ← copy to .env and populate
+├── schema.sql               ← templates table
+├── schema_v2.sql            ← users, devices, credentials, groups, logs
+├── setup.sh                 ← one-shot Ubuntu 24.04 install script
+├── check-status.sh          ← service health check
+├── backup-configlab-db.sh   ← PostgreSQL dump + rotation
+├── configlab-letsencrypt    ← Nginx site config (Let's Encrypt)
+├── configlab-selfsigned     ← Nginx site config (self-signed)
 ├── auth/
-│   └── index.js            ← Passport: local / LDAP / SAML strategies
+│   └── index.js             ← Passport strategies: local / LDAP / SAML
 ├── crypto/
-│   └── vault.js            ← AES-256-GCM encrypt / decrypt
+│   └── vault.js             ← AES-256-GCM encrypt / decrypt
 ├── middleware/
-│   └── auth.js             ← requireAuth / requireAdmin
+│   └── auth.js              ← requireAuth / requireAdmin
 ├── routes/
-│   ├── auth.js             ← /auth/* (login, logout, providers)
-│   ├── users.js            ← /api/users/* + auth-config
-│   ├── devices.js          ← /api/devices/* (groups, creds, devices)
-│   ├── ssh.js              ← /api/ssh/execute + WS handler
-│   └── templates.js        ← /api/templates/*
-├── public/
-│   ├── index.html          ← Template studio + SSH panel
-│   ├── login.html          ← Login page
-│   ├── admin.html          ← User & auth provider admin
-│   └── devices.html        ← Device & credential vault UI
-└── configlab-letsencrypt   ← Nginx config (Let's Encrypt)
-    configlab-selfsigned    ← Nginx config (self-signed)
+│   ├── auth.js              ← /auth/* login, logout, providers
+│   ├── users.js             ← /api/users/* + auth-config (admin)
+│   ├── devices.js           ← /api/devices/* groups, credentials, devices
+│   ├── ssh.js               ← /api/ssh/execute + WebSocket handler
+│   └── templates.js         ← /api/templates/*
+└── public/
+    ├── index.html           ← Template studio + live SSH panel
+    ├── login.html           ← Login (local / LDAP / SAML tabs)
+    ├── admin.html           ← User management + auth provider config
+    └── devices.html         ← Device inventory + credential vault
 ```
